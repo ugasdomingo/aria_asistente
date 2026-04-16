@@ -196,13 +196,13 @@ async def _execute_tool(tool_name: str, tool_input: dict) -> str:
             return json.dumps(result, ensure_ascii=False)
 
         elif tool_name == "get_finances":
-            data = await google.get_sheet_values("Finanzas!A1:H50")
+            data = await google.get_sheet_values("'Finanzas'!A1:H50")
             if not data:
                 return "No hay datos financieros. La hoja 'Finanzas' está vacía."
             return json.dumps(data, ensure_ascii=False)
 
         elif tool_name == "get_tasks":
-            data = await google.get_sheet_values("Tareas!A1:H200")
+            data = await google.get_sheet_values("'Tareas'!A1:H200")
             if not data:
                 return "No hay tareas registradas."
             solo_pendientes = tool_input.get("solo_pendientes", True)
@@ -262,7 +262,7 @@ async def process_message(chat_id: str, user_message: str) -> str:
     await google.save_to_history(chat_id, "usuario", user_message)
 
     # Cargar historial reciente como contexto
-    history_data = await google.get_sheet_values("Historial!A1:D60")
+    history_data = await google.get_sheet_values("'Historial'!A1:D60")
     history_context = ""
     if history_data and len(history_data) > 1:
         recent = history_data[-20:] if len(history_data) > 21 else history_data[1:]

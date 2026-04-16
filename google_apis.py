@@ -123,7 +123,7 @@ class GoogleAPIs:
             return
         self.sheets.spreadsheets().values().append(
             spreadsheetId=self.sheet_id,
-            range=f"{sheet_name}!A1",
+            range=f"'{sheet_name}'!A1",
             valueInputOption="USER_ENTERED",
             body={"values": [values]},
         ).execute()
@@ -134,14 +134,14 @@ class GoogleAPIs:
     def _update_task_status(self, task_name: str, new_status: str) -> str:
         if not self.sheets:
             return "Sheets no configurado"
-        data = self._get_sheet_values("Tareas!A:H")
+        data = self._get_sheet_values("'Tareas'!A:H")
         if not data or len(data) < 2:
             return "No se encontraron tareas"
         headers = data[0]
         status_col = headers.index("Estado") if "Estado" in headers else 6
         for i, row in enumerate(data[1:], start=2):
             if row and row[0].strip().lower() == task_name.strip().lower():
-                cell = f"Tareas!{chr(65 + status_col)}{i}"
+                cell = f"'Tareas'!{chr(65 + status_col)}{i}"
                 self.sheets.spreadsheets().values().update(
                     spreadsheetId=self.sheet_id,
                     range=cell,
