@@ -10,7 +10,7 @@ import agent
 
 load_dotenv()
 
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 CHAT_ID_FILE = ".chat_id"  # Persiste el chat_id en disco
 
 scheduler = AsyncIOScheduler(timezone="Europe/Madrid")
