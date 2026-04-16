@@ -78,14 +78,17 @@ class GoogleAPIs:
 
     def _save_to_history(self, chat_id: str, rol: str, mensaje: str):
         if not self.airtable_key:
+            print("⚠️  Airtable: AIRTABLE_API_KEY no configurado, no se guarda historial.")
             return
         fecha = datetime.now(MADRID_TZ).strftime("%d/%m/%Y %H:%M")
-        httpx.post(
+        resp = httpx.post(
             self._at_url(self.tbl_historial),
             headers=self._at_headers(),
             json={"fields": {"Fecha": fecha, "ChatID": chat_id, "Rol": rol, "Mensaje": mensaje}},
             timeout=10,
         )
+        if resp.status_code not in (200, 201):
+            print(f"❌ Airtable historial error {resp.status_code}: {resp.text[:300]}")
 
     async def save_to_history(self, chat_id: str, rol: str, mensaje: str):
         await asyncio.to_thread(self._save_to_history, chat_id, rol, mensaje)
