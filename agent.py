@@ -84,25 +84,25 @@ TOOLS = [
     },
     {
         "name": "get_finances",
-        "description": "Lee los datos financieros desde Google Sheets: ingresos, gastos fijos, deudas. Úsalo para asesoría financiera o cuando pregunten por dinero disponible.",
+        "description": "Lee los datos financieros de Domingo: ingresos, gastos fijos, deudas. Úsalo para asesoría financiera o cuando pregunten por dinero disponible.",
         "input_schema": {"type": "object", "properties": {}},
     },
     {
         "name": "get_tasks",
-        "description": "Lee las tareas y obligaciones pendientes desde Google Sheets.",
+        "description": "Lee las tareas y obligaciones pendientes de Domingo.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "solo_pendientes": {
                     "type": "boolean",
-                    "description": "Si es true, devuelve solo las tareas con estado 'Pendiente'. Por defecto true.",
+                    "description": "Si es true, devuelve solo las tareas no completadas. Por defecto true.",
                 }
             },
         },
     },
     {
         "name": "create_task",
-        "description": "Añade una nueva tarea, obligación o recordatorio a Google Sheets.",
+        "description": "Añade una nueva tarea, obligación o recordatorio.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -196,43 +196,35 @@ async def _execute_tool(tool_name: str, tool_input: dict) -> str:
             return json.dumps(result, ensure_ascii=False)
 
         elif tool_name == "get_finances":
-            data = await google.get_sheet_values("'Finanzas'!A1:H50")
+            data = await google.get_finanzas()
             if not data:
-                return "No hay datos financieros. La hoja 'Finanzas' está vacía."
-            return json.dumps(data, ensure_ascii=False)
+                return "No hay datos financieros registrados aún."
+            return json.dumps(data, ensure_ascii=False, indent=2)
 
         elif tool_name == "get_tasks":
-            data = await google.get_sheet_values("'Tareas'!A1:H200")
-            if not data:
-                return "No hay tareas registradas."
             solo_pendientes = tool_input.get("solo_pendientes", True)
-            if solo_pendientes and len(data) > 1:
-                headers = data[0]
-                status_idx = headers.index("Estado") if "Estado" in headers else 6
-                filtered = [headers] + [
-                    r for r in data[1:]
-                    if len(r) > status_idx and r[status_idx] != "Completado"
-                ]
-                data = filtered
-            return json.dumps(data, ensure_ascii=False)
+            data = await google.get_tareas(solo_pendientes)
+            if not data:
+                return "No hay tareas registradas." if not solo_pendientes else "No hay tareas pendientes."
+            return json.dumps(data, ensure_ascii=False, indent=2)
 
         elif tool_name == "create_task":
             fecha = datetime.now(MADRID_TZ).strftime("%d/%m/%Y")
-            row = [
-                tool_input.get("nombre", ""),
-                tool_input.get("fecha_limite", ""),
-                tool_input.get("tipo", "tarea"),
-                tool_input.get("monto", ""),
-                tool_input.get("prioridad", "media"),
-                tool_input.get("notas", ""),
-                "Pendiente",
-                fecha,
-            ]
-            await google.append_sheet_row("Tareas", row)
+            fields = {
+                "Tarea": tool_input.get("nombre", ""),
+                "Fecha Limite": tool_input.get("fecha_limite", ""),
+                "Tipo": tool_input.get("tipo", "tarea"),
+                "Monto": tool_input.get("monto", ""),
+                "Prioridad": tool_input.get("prioridad", "media"),
+                "Notas": tool_input.get("notas", ""),
+                "Estado": "Pendiente",
+                "Creado": fecha,
+            }
+            await google.create_tarea(fields)
             return f"Tarea '{tool_input['nombre']}' añadida correctamente."
 
         elif tool_name == "update_task_status":
-            result = await google.update_task_status(
+            result = await google.update_tarea_estado(
                 tool_input["nombre"], tool_input["estado"]
             )
             return result
@@ -262,13 +254,11 @@ async def process_message(chat_id: str, user_message: str) -> str:
     await google.save_to_history(chat_id, "usuario", user_message)
 
     # Cargar historial reciente como contexto
-    history_data = await google.get_sheet_values("'Historial'!A1:D60")
+    history_items = await google.get_historial(chat_id, limit=20)
     history_context = ""
-    if history_data and len(history_data) > 1:
-        recent = history_data[-20:] if len(history_data) > 21 else history_data[1:]
-        lines = [f"{r[2]}: {r[3]}" for r in recent if len(r) >= 4]
-        if lines:
-            history_context = "\nHISTORIAL RECIENTE:\n" + "\n".join(lines)
+    if history_items:
+        lines = [f"{item['rol']}: {item['mensaje']}" for item in history_items]
+        history_context = "\nHISTORIAL RECIENTE:\n" + "\n".join(lines)
 
     now_madrid = datetime.now(MADRID_TZ).strftime("%A %d/%m/%Y %H:%M")
     system = SYSTEM_PROMPT + f"\nFECHA Y HORA ACTUAL (Madrid): {now_madrid}" + history_context
