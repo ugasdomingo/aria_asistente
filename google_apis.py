@@ -123,7 +123,7 @@ class GoogleAPIs:
             return
         self.sheets.spreadsheets().values().append(
             spreadsheetId=self.sheet_id,
-            range=f"{sheet_name}!A:Z",
+            range=f"{sheet_name}!A1",
             valueInputOption="USER_ENTERED",
             body={"values": [values]},
         ).execute()
