@@ -24,24 +24,31 @@ class GoogleAPIs:
     def __init__(self):
         self.sheet_id = os.getenv("GOOGLE_SHEET_ID", "")
         self.calendar_id = os.getenv("GOOGLE_CALENDAR_ID", "primary")
+        self.calendar = None
+        self.sheets = None
+        self.docs = None
+        self.drive = None
 
-        creds_json = os.getenv("GOOGLE_CREDENTIALS_JSON", "")
+        creds_json = os.getenv("GOOGLE_CREDENTIALS_JSON", "").strip()
         if not creds_json:
-            print("⚠️  GOOGLE_CREDENTIALS_JSON no configurado. Google APIs desactivadas.")
-            self.calendar = None
-            self.sheets = None
-            self.docs = None
-            self.drive = None
+            print("⚠️  GOOGLE_CREDENTIALS_JSON vacío — Google APIs desactivadas.")
             return
 
-        creds_dict = json.loads(creds_json)
-        credentials = service_account.Credentials.from_service_account_info(
-            creds_dict, scopes=SCOPES
-        )
-        self.calendar = build("calendar", "v3", credentials=credentials)
-        self.sheets = build("sheets", "v4", credentials=credentials)
-        self.docs = build("docs", "v1", credentials=credentials)
-        self.drive = build("drive", "v3", credentials=credentials)
+        try:
+            creds_dict = json.loads(creds_json)
+            credentials = service_account.Credentials.from_service_account_info(
+                creds_dict, scopes=SCOPES
+            )
+            self.calendar = build("calendar", "v3", credentials=credentials)
+            self.sheets = build("sheets", "v4", credentials=credentials)
+            self.docs = build("docs", "v1", credentials=credentials)
+            self.drive = build("drive", "v3", credentials=credentials)
+            print("✅ Google APIs conectadas correctamente.")
+        except json.JSONDecodeError as e:
+            print(f"❌ GOOGLE_CREDENTIALS_JSON no es JSON válido: {e}")
+            print("   Verifica que pegaste el contenido completo del archivo JSON en Railway.")
+        except Exception as e:
+            print(f"❌ Error conectando Google APIs: {e}")
 
     # ─── Calendar ────────────────────────────────────────────────────────────
 
