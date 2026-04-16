@@ -258,10 +258,13 @@ class GoogleAPIs:
         self.docs.documents().batchUpdate(
             documentId=doc_id, body={"requests": requests}
         ).execute()
-        self.drive.permissions().create(
-            fileId=doc_id,
-            body={"type": "anyone", "role": "reader"},
-        ).execute()
+        owner_email = os.getenv("GOOGLE_OWNER_EMAIL", "").strip()
+        if owner_email:
+            self.drive.permissions().create(
+                fileId=doc_id,
+                body={"type": "user", "role": "writer", "emailAddress": owner_email},
+                sendNotificationEmail=False,
+            ).execute()
         return {
             "status": "creado",
             "titulo": titulo,
