@@ -68,7 +68,7 @@ async def daily_summary_job():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Registrar webhook en Telegram
-    domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "").strip()
+    domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "").strip().replace("\n", "").replace("\r", "")
     if domain:
         webhook_url = f"https://{domain}/webhook"
         async with httpx.AsyncClient() as http:
