@@ -266,6 +266,7 @@ class GoogleAPIs:
         for e in result.get("items", []):
             start = e.get("start", {})
             events.append({
+                "id": e.get("id", ""),
                 "titulo": e.get("summary", "Sin título"),
                 "inicio": start.get("dateTime", start.get("date", "")),
                 "descripcion": e.get("description", ""),
@@ -302,33 +303,57 @@ class GoogleAPIs:
     async def create_calendar_event(self, **kwargs) -> dict:
         return await asyncio.to_thread(self._create_calendar_event, **kwargs)
 
+    def _delete_calendar_event(self, event_id: str) -> dict:
+        if not self.calendar:
+            return {"error": "Calendar no configurado"}
+        try:
+            self.calendar.events().delete(
+                calendarId=self.calendar_id, eventId=event_id
+            ).execute()
+            return {"status": "eliminado", "event_id": event_id}
+        except Exception as e:
+            return {"error": str(e)}
+
+    async def delete_calendar_event(self, event_id: str) -> dict:
+        return await asyncio.to_thread(self._delete_calendar_event, event_id)
+
     # ─── Docs ────────────────────────────────────────────────────────────────
 
     def _create_doc(self, titulo: str, contenido: str) -> dict:
-        if not self.docs:
-            print("❌ Docs: cliente no inicializado (GOOGLE_CREDENTIALS_JSON inválido o vacío)")
-            return {"error": "Docs no configurado"}
+        if not self.drive:
+            return {"error": "Drive no configurado"}
         try:
-            print(f"📄 Docs: creando documento '{titulo}'...")
-            doc = self.docs.documents().create(body={"title": titulo}).execute()
-            doc_id = doc.get("documentId")
+            owner_email = os.getenv("GOOGLE_OWNER_EMAIL", "").strip()
+            print(f"📄 Docs: creando documento '{titulo}' vía Drive API...")
+
+            # Crear el documento como Google Doc vía Drive API (evita restricciones de Docs API)
+            file_metadata = {
+                "name": titulo,
+                "mimeType": "application/vnd.google-apps.document",
+            }
+            doc = self.drive.files().create(
+                body=file_metadata, fields="id"
+            ).execute()
+            doc_id = doc.get("id")
             print(f"📄 Docs: documento creado con ID {doc_id}, insertando contenido...")
+
+            # Insertar contenido vía Docs API
             requests = [{"insertText": {"location": {"index": 1}, "text": contenido}}]
             self.docs.documents().batchUpdate(
                 documentId=doc_id, body={"requests": requests}
             ).execute()
-            print("📄 Docs: contenido insertado. Configurando permisos...")
-            owner_email = os.getenv("GOOGLE_OWNER_EMAIL", "").strip()
+
+            # Compartir con el propietario
             if owner_email:
                 self.drive.permissions().create(
                     fileId=doc_id,
                     body={"type": "user", "role": "writer", "emailAddress": owner_email},
                     sendNotificationEmail=False,
                 ).execute()
-                print(f"📄 Docs: permiso concedido a {owner_email}")
+                print(f"✅ Docs: documento listo y compartido con {owner_email}")
             else:
-                print("⚠️  Docs: GOOGLE_OWNER_EMAIL no configurado, documento sin compartir")
-            print(f"✅ Docs: documento listo → https://docs.google.com/document/d/{doc_id}/edit")
+                print("✅ Docs: documento creado (sin GOOGLE_OWNER_EMAIL no se comparte)")
+
             return {
                 "status": "creado",
                 "titulo": titulo,

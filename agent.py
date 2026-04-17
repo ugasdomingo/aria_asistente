@@ -86,6 +86,23 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "delete_calendar_event",
+            "description": "Elimina o cancela un evento del calendario de Domingo. Primero consulta get_calendar_events para obtener el ID del evento.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "event_id": {
+                        "type": "string",
+                        "description": "ID del evento a eliminar (obtenido de get_calendar_events)",
+                    }
+                },
+                "required": ["event_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_finances",
             "description": "Lee los datos financieros de Domingo: ingresos, gastos fijos, deudas. Úsalo para asesoría financiera o cuando pregunten por dinero disponible.",
             "parameters": {"type": "object", "properties": {}},
@@ -199,6 +216,10 @@ async def _execute_tool(tool_name: str, tool_input: dict) -> str:
         if tool_name == "get_calendar_events":
             events = await google.get_calendar_events(tool_input.get("days", 7))
             return json.dumps(events, ensure_ascii=False, indent=2) if events else "No hay eventos en los próximos días."
+
+        elif tool_name == "delete_calendar_event":
+            result = await google.delete_calendar_event(tool_input["event_id"])
+            return json.dumps(result, ensure_ascii=False)
 
         elif tool_name == "create_calendar_event":
             result = await google.create_calendar_event(
