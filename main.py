@@ -1,3 +1,4 @@
+import asyncio
 import os
 from contextlib import asynccontextmanager
 
@@ -5,6 +6,7 @@ import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 import agent
 
@@ -107,6 +109,66 @@ app = FastAPI(title="ARIA - Asistente Personal", lifespan=lifespan)
 @app.get("/health")
 async def health():
     return {"status": "ok", "agent": "ARIA"}
+
+
+@app.get("/auth/google")
+async def auth_google():
+    """Inicia el flujo OAuth — visita esta URL una sola vez para autorizar a ARIA."""
+    client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+    redirect_uri = "https://ariaasistente-production.up.railway.app/auth/callback"
+    scope = "https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/documents"
+    url = (
+        "https://accounts.google.com/o/oauth2/v2/auth"
+        f"?client_id={client_id}"
+        f"&redirect_uri={redirect_uri}"
+        f"&response_type=code"
+        f"&scope={scope}"
+        f"&access_type=offline"
+        f"&prompt=consent"
+    )
+    return RedirectResponse(url)
+
+
+@app.get("/auth/callback")
+async def auth_callback(code: str = "", error: str = ""):
+    """Google redirige aquí tras la autorización."""
+    if error:
+        return HTMLResponse(f"<h2>❌ Error: {error}</h2>")
+    if not code:
+        return HTMLResponse("<h2>❌ No se recibió código de autorización.</h2>")
+
+    client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+    client_secret = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
+    redirect_uri = "https://ariaasistente-production.up.railway.app/auth/callback"
+
+    async with httpx.AsyncClient() as http:
+        resp = await http.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "code": code,
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "redirect_uri": redirect_uri,
+                "grant_type": "authorization_code",
+            },
+        )
+    tokens = resp.json()
+    refresh_token = tokens.get("refresh_token", "")
+
+    if not refresh_token:
+        return HTMLResponse(
+            "<h2>❌ No se obtuvo refresh_token.</h2>"
+            "<p>Asegúrate de haber añadido <code>access_type=offline</code> y <code>prompt=consent</code>.</p>"
+            f"<pre>{tokens}</pre>"
+        )
+
+    return HTMLResponse(
+        "<h1>✅ Autorización completada</h1>"
+        "<p>Copia este <strong>Refresh Token</strong> y añádelo en Railway como "
+        "<code>GOOGLE_USER_REFRESH_TOKEN</code>:</p>"
+        f"<pre style='background:#f0f0f0;padding:16px;word-break:break-all'>{refresh_token}</pre>"
+        "<p>Después ARIA podrá crear documentos directamente en tu Google Drive.</p>"
+    )
 
 
 @app.get("/admin/drive")

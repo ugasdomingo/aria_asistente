@@ -319,24 +319,49 @@ class GoogleAPIs:
 
     # ─── Docs ────────────────────────────────────────────────────────────────
 
+    def _get_user_drive_docs(self):
+        """Crea clientes Drive y Docs autenticados como el usuario (OAuth), no como la service account."""
+        refresh_token = os.getenv("GOOGLE_USER_REFRESH_TOKEN", "").strip()
+        client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+        client_secret = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
+        if not all([refresh_token, client_id, client_secret]):
+            return None, None
+        from google.oauth2.credentials import Credentials
+        creds = Credentials(
+            token=None,
+            refresh_token=refresh_token,
+            client_id=client_id,
+            client_secret=client_secret,
+            token_uri="https://oauth2.googleapis.com/token",
+        )
+        user_drive = build("drive", "v3", credentials=creds)
+        user_docs = build("docs", "v1", credentials=creds)
+        return user_drive, user_docs
+
     def _create_doc(self, titulo: str, contenido: str) -> dict:
         if not self.drive:
             return {"error": "Drive no configurado"}
         try:
             owner_email = os.getenv("GOOGLE_OWNER_EMAIL", "").strip()
+            owner_email = owner_email  # usado más abajo si no hay OAuth
             print(f"📄 Docs: creando documento '{titulo}' vía Drive API...")
 
-            # Crear el documento en la carpeta del usuario (evita usar el Drive de la service account)
+            # Usar OAuth del usuario si está disponible; si no, service account
+            user_drive, user_docs = self._get_user_drive_docs()
+            drive_client = user_drive if user_drive else self.drive
+            docs_client = user_docs if user_docs else self.docs
+            auth_mode = "OAuth usuario" if user_drive else "service account"
+            print(f"📄 Docs: usando {auth_mode}")
+
             folder_id = os.getenv("GOOGLE_DRIVE_FOLDER_ID", "").strip()
-            print(f"📄 Docs: GOOGLE_DRIVE_FOLDER_ID = '{folder_id}' ({'✅ configurado' if folder_id else '❌ VACÍO — se usará Drive de service account'})")
             file_metadata = {
                 "name": titulo,
                 "mimeType": "application/vnd.google-apps.document",
             }
             if folder_id:
                 file_metadata["parents"] = [folder_id]
-            print(f"📄 Docs: file_metadata = {file_metadata}")
-            doc = self.drive.files().create(
+
+            doc = drive_client.files().create(
                 body=file_metadata, fields="id"
             ).execute()
             doc_id = doc.get("id")
@@ -344,20 +369,20 @@ class GoogleAPIs:
 
             # Insertar contenido vía Docs API
             requests = [{"insertText": {"location": {"index": 1}, "text": contenido}}]
-            self.docs.documents().batchUpdate(
+            docs_client.documents().batchUpdate(
                 documentId=doc_id, body={"requests": requests}
             ).execute()
 
-            # Compartir con el propietario
-            if owner_email:
-                self.drive.permissions().create(
+            # Compartir con el propietario solo si se usó service account
+            if not user_drive and owner_email:
+                drive_client.permissions().create(
                     fileId=doc_id,
                     body={"type": "user", "role": "writer", "emailAddress": owner_email},
                     sendNotificationEmail=False,
                 ).execute()
-                print(f"✅ Docs: documento listo y compartido con {owner_email}")
+                print(f"✅ Docs: documento compartido con {owner_email}")
             else:
-                print("✅ Docs: documento creado (sin GOOGLE_OWNER_EMAIL no se comparte)")
+                print("✅ Docs: documento creado en Drive del usuario")
 
             return {
                 "status": "creado",
