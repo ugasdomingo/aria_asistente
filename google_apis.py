@@ -320,19 +320,43 @@ class GoogleAPIs:
     # ─── Docs ────────────────────────────────────────────────────────────────
 
     def _get_user_drive_docs(self):
-        """Crea clientes Drive y Docs autenticados como el usuario (OAuth), no como la service account."""
+        """Crea clientes Drive y Docs autenticados como el usuario (OAuth)."""
         refresh_token = os.getenv("GOOGLE_USER_REFRESH_TOKEN", "").strip()
         client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
         client_secret = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
         if not all([refresh_token, client_id, client_secret]):
             return None, None
+
+        # Refrescar manualmente el access token
+        resp = httpx.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+                "client_id": client_id,
+                "client_secret": client_secret,
+            },
+            timeout=10,
+        )
+        token_data = resp.json()
+        print(f"📄 OAuth refresh status={resp.status_code} keys={list(token_data.keys())}")
+
+        if "error" in token_data:
+            print(f"❌ OAuth error: {token_data}")
+            return None, None
+
+        access_token = token_data["access_token"]
         from google.oauth2.credentials import Credentials
         creds = Credentials(
-            token=None,
+            token=access_token,
             refresh_token=refresh_token,
             client_id=client_id,
             client_secret=client_secret,
             token_uri="https://oauth2.googleapis.com/token",
+            scopes=[
+                "https://www.googleapis.com/auth/drive",
+                "https://www.googleapis.com/auth/documents",
+            ],
         )
         user_drive = build("drive", "v3", credentials=creds)
         user_docs = build("docs", "v1", credentials=creds)
