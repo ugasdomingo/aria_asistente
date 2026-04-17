@@ -34,6 +34,7 @@ class GoogleAPIs:
         self.tbl_historial = "tblWQvasKiFr7OQAz"
         self.tbl_finanzas = "tblBaDPD27Lid39NN"
         self.tbl_tareas = "tblCuQNQ1whoWscNt"
+        self.tbl_memoria = "tbl78K08qNSAUKanC"
 
         if self.airtable_key:
             print("✅ Airtable configurado correctamente.")
@@ -191,6 +192,60 @@ class GoogleAPIs:
 
     async def update_tarea_estado(self, task_name: str, new_status: str) -> str:
         return await asyncio.to_thread(self._update_tarea_estado, task_name, new_status)
+
+    # ─── Memoria permanente ──────────────────────────────────────────────────
+
+    def _get_memoria(self) -> list:
+        if not self.airtable_key:
+            return []
+        resp = httpx.get(
+            self._at_url(self.tbl_memoria),
+            headers=self._at_headers(),
+            params={"maxRecords": 100},
+            timeout=10,
+        )
+        return [r["fields"] for r in resp.json().get("records", [])]
+
+    async def get_memoria(self) -> list:
+        return await asyncio.to_thread(self._get_memoria)
+
+    def _save_memoria(self, categoria: str, contenido: str) -> str:
+        if not self.airtable_key:
+            return "Airtable no configurado"
+        fecha = datetime.now(MADRID_TZ).strftime("%d/%m/%Y %H:%M")
+        # Buscar si ya existe un registro con esa categoría
+        resp = httpx.get(
+            self._at_url(self.tbl_memoria),
+            headers=self._at_headers(),
+            params={"maxRecords": 100},
+            timeout=10,
+        )
+        records = resp.json().get("records", [])
+        match = next(
+            (r for r in records if r["fields"].get("Categoria", "").strip().lower() == categoria.strip().lower()),
+            None,
+        )
+        if match:
+            # Actualizar registro existente
+            httpx.patch(
+                self._at_url(self.tbl_memoria, match["id"]),
+                headers=self._at_headers(),
+                json={"fields": {"Contenido": contenido, "Actualizado": fecha}},
+                timeout=10,
+            )
+            return f"Memoria '{categoria}' actualizada."
+        else:
+            # Crear nuevo registro
+            httpx.post(
+                self._at_url(self.tbl_memoria),
+                headers=self._at_headers(),
+                json={"fields": {"Categoria": categoria, "Contenido": contenido, "Actualizado": fecha}},
+                timeout=10,
+            )
+            return f"Memoria '{categoria}' guardada."
+
+    async def save_memoria(self, categoria: str, contenido: str) -> str:
+        return await asyncio.to_thread(self._save_memoria, categoria, contenido)
 
     # ─── Calendar ────────────────────────────────────────────────────────────
 

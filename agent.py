@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 from datetime import datetime
@@ -158,6 +159,27 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "save_memory",
+            "description": "Guarda o actualiza algo importante que has aprendido sobre Domingo: preferencias, datos personales, patrones de inversión, estilo de comunicación, contexto vital, etc. Úsalo cuando Domingo comparta información relevante que debas recordar en futuras conversaciones. Cada categoría es un bloque de memoria independiente.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "categoria": {
+                        "type": "string",
+                        "description": "Categoría corta de la memoria. Ejemplos: 'perfil_personal', 'preferencias_comunicacion', 'cartera_inversiones', 'situacion_financiera', 'familia', 'trabajo', 'objetivos'",
+                    },
+                    "contenido": {
+                        "type": "string",
+                        "description": "Contenido completo y detallado de lo que debes recordar sobre esta categoría. Escribe en tercera persona sobre Domingo.",
+                    },
+                },
+                "required": ["categoria", "contenido"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_stock_price",
             "description": "Obtiene el precio actual y datos clave de una acción o ETF. Úsalo SIEMPRE que el usuario mencione un ticker o pregunte por una empresa cotizada.",
             "parameters": {
@@ -215,6 +237,9 @@ async def _execute_tool(tool_name: str, tool_input: dict) -> str:
         elif tool_name == "update_task_status":
             return await google.update_tarea_estado(tool_input["nombre"], tool_input["estado"])
 
+        elif tool_name == "save_memory":
+            return await google.save_memoria(tool_input["categoria"], tool_input["contenido"])
+
         elif tool_name == "create_google_doc":
             result = await google.create_doc(titulo=tool_input["titulo"], contenido=tool_input["contenido"])
             return json.dumps(result, ensure_ascii=False)
@@ -235,16 +260,25 @@ async def process_message(chat_id: str, user_message: str) -> str:
 
     await google.save_to_history(chat_id, "usuario", user_message)
 
-    # Historial reciente como contexto
-    history_items = await google.get_historial(chat_id, limit=20)
+    # Cargar memoria permanente y historial reciente en paralelo
+    historia_items, memoria_items = await asyncio.gather(
+        google.get_historial(chat_id, limit=20),
+        google.get_memoria(),
+    )
     now_madrid = datetime.now(MADRID_TZ).strftime("%A %d/%m/%Y %H:%M")
 
     system_content = SYSTEM_PROMPT + f"\nFECHA Y HORA ACTUAL (Madrid): {now_madrid}"
 
+    if memoria_items:
+        memoria_text = "\n\n━━━ LO QUE SÉ SOBRE DOMINGO (memoria permanente) ━━━\n"
+        for m in memoria_items:
+            memoria_text += f"\n[{m.get('Categoria', '').upper()}]\n{m.get('Contenido', '')}\n"
+        system_content += memoria_text
+
     messages = [{"role": "system", "content": system_content}]
 
     # Añadir historial previo como mensajes reales
-    for item in history_items:
+    for item in historia_items:
         role = "assistant" if item["rol"] == "aria" else "user"
         messages.append({"role": role, "content": item["mensaje"]})
 
