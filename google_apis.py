@@ -326,11 +326,14 @@ class GoogleAPIs:
             owner_email = os.getenv("GOOGLE_OWNER_EMAIL", "").strip()
             print(f"📄 Docs: creando documento '{titulo}' vía Drive API...")
 
-            # Crear el documento como Google Doc vía Drive API (evita restricciones de Docs API)
+            # Crear el documento en la carpeta del usuario (evita usar el Drive de la service account)
+            folder_id = os.getenv("GOOGLE_DRIVE_FOLDER_ID", "").strip()
             file_metadata = {
                 "name": titulo,
                 "mimeType": "application/vnd.google-apps.document",
             }
+            if folder_id:
+                file_metadata["parents"] = [folder_id]
             doc = self.drive.files().create(
                 body=file_metadata, fields="id"
             ).execute()
