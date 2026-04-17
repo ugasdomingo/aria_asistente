@@ -162,13 +162,19 @@ async def auth_callback(code: str = "", error: str = ""):
             f"<pre>{tokens}</pre>"
         )
 
-    return HTMLResponse(
-        "<h1>✅ Autorización completada</h1>"
-        "<p>Copia este <strong>Refresh Token</strong> y añádelo en Railway como "
-        "<code>GOOGLE_USER_REFRESH_TOKEN</code>:</p>"
-        f"<pre style='background:#f0f0f0;padding:16px;word-break:break-all'>{refresh_token}</pre>"
-        "<p>Después ARIA podrá crear documentos directamente en tu Google Drive.</p>"
-    )
+    return HTMLResponse(f"""
+        <h1>✅ Autorización completada</h1>
+        <p>Copia el token completo y añádelo en Railway como <code>GOOGLE_USER_REFRESH_TOKEN</code>:</p>
+        <textarea id="token" rows="4" style="width:100%;font-size:13px;padding:12px;word-break:break-all"
+            onclick="this.select()">{refresh_token}</textarea>
+        <br><br>
+        <button onclick="navigator.clipboard.writeText(document.getElementById('token').value);this.innerText='✅ Copiado!'"
+            style="padding:12px 24px;font-size:16px;cursor:pointer">
+            📋 Copiar token
+        </button>
+        <p>Token length: <strong>{len(refresh_token)} caracteres</strong></p>
+        <p>Después de añadirlo en Railway, ARIA creará documentos en tu Google Drive.</p>
+    """)
 
 
 @app.get("/admin/drive")
