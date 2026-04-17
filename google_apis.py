@@ -251,26 +251,38 @@ class GoogleAPIs:
 
     def _create_doc(self, titulo: str, contenido: str) -> dict:
         if not self.docs:
+            print("❌ Docs: cliente no inicializado (GOOGLE_CREDENTIALS_JSON inválido o vacío)")
             return {"error": "Docs no configurado"}
-        doc = self.docs.documents().create(body={"title": titulo}).execute()
-        doc_id = doc.get("documentId")
-        requests = [{"insertText": {"location": {"index": 1}, "text": contenido}}]
-        self.docs.documents().batchUpdate(
-            documentId=doc_id, body={"requests": requests}
-        ).execute()
-        owner_email = os.getenv("GOOGLE_OWNER_EMAIL", "").strip()
-        if owner_email:
-            self.drive.permissions().create(
-                fileId=doc_id,
-                body={"type": "user", "role": "writer", "emailAddress": owner_email},
-                sendNotificationEmail=False,
+        try:
+            print(f"📄 Docs: creando documento '{titulo}'...")
+            doc = self.docs.documents().create(body={"title": titulo}).execute()
+            doc_id = doc.get("documentId")
+            print(f"📄 Docs: documento creado con ID {doc_id}, insertando contenido...")
+            requests = [{"insertText": {"location": {"index": 1}, "text": contenido}}]
+            self.docs.documents().batchUpdate(
+                documentId=doc_id, body={"requests": requests}
             ).execute()
-        return {
-            "status": "creado",
-            "titulo": titulo,
-            "documentId": doc_id,
-            "link": f"https://docs.google.com/document/d/{doc_id}/edit",
-        }
+            print("📄 Docs: contenido insertado. Configurando permisos...")
+            owner_email = os.getenv("GOOGLE_OWNER_EMAIL", "").strip()
+            if owner_email:
+                self.drive.permissions().create(
+                    fileId=doc_id,
+                    body={"type": "user", "role": "writer", "emailAddress": owner_email},
+                    sendNotificationEmail=False,
+                ).execute()
+                print(f"📄 Docs: permiso concedido a {owner_email}")
+            else:
+                print("⚠️  Docs: GOOGLE_OWNER_EMAIL no configurado, documento sin compartir")
+            print(f"✅ Docs: documento listo → https://docs.google.com/document/d/{doc_id}/edit")
+            return {
+                "status": "creado",
+                "titulo": titulo,
+                "documentId": doc_id,
+                "link": f"https://docs.google.com/document/d/{doc_id}/edit",
+            }
+        except Exception as e:
+            print(f"❌ Docs error: {type(e).__name__}: {e}")
+            return {"error": str(e)}
 
     async def create_doc(self, titulo: str, contenido: str) -> dict:
         return await asyncio.to_thread(self._create_doc, titulo, contenido)
