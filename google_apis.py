@@ -339,10 +339,9 @@ class GoogleAPIs:
             timeout=10,
         )
         token_data = resp.json()
-        print(f"📄 OAuth refresh status={resp.status_code} keys={list(token_data.keys())}")
+        print(f"📄 OAuth refresh status={resp.status_code}: {token_data.get('error')} — {token_data.get('error_description')}")
 
         if "error" in token_data:
-            print(f"❌ OAuth error: {token_data}")
             return None, None
 
         access_token = token_data["access_token"]
