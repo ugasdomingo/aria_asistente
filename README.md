@@ -1,78 +1,101 @@
-# ARIA — Asistente Personal IA
+# ARIA 2 - Asistente personal fiable
 
-Asistente ejecutiva personal, asesora financiera y de inversiones para Domingo.
-Stack: Python · FastAPI · Claude (Anthropic) · Google APIs · Telegram · Railway
+ARIA es una asistente ejecutiva personal para Domingo. Funciona por Telegram y
+usa OpenAI, Google Calendar/Docs, Airtable y Yahoo Finance.
 
----
+La version 2 separa el cerebro en modulos para que la memoria y las decisiones
+no dependan solo del prompt.
 
 ## Arquitectura
 
+```text
+Telegram
+  -> FastAPI webhook
+  -> agent.py compatible wrapper
+  -> aria_core.orchestrator.AriaOrchestrator
+      -> workflow routing
+      -> structured memory retrieval
+      -> tool execution with approval gates
+      -> OpenAI Agents SDK runtime when installed
+      -> compatible Chat Completions tool loop fallback
+  -> Google Calendar / Docs
+  -> Airtable history, tasks, finances, memory
+  -> Telegram response
 ```
-Telegram (móvil)
-    ↓
-Railway (este servidor)
-    ↓ bucle agente real
-Claude API con herramientas:
-    ├── get_calendar_events / create_calendar_event  → Google Calendar
-    ├── get_finances / get_tasks / create_task        → Google Sheets
-    ├── create_google_doc                             → Google Docs
-    └── get_stock_price                               → Yahoo Finance
-    ↓
-Respuesta → Telegram
+
+## Modulos principales
+
+- `aria_core/orchestrator.py`: capa interna `process_message(chat_id, text)`.
+- `aria_core/memory.py`: memoria persistente estructurada, versionada y compatible con la tabla actual de Airtable.
+- `aria_core/tools.py`: herramientas normalizadas y proteccion para acciones sensibles.
+- `aria_core/workflows.py`: enrutado hacia agenda, marketing, negocio, decisiones, finanzas, inversiones, documentos o memoria.
+- `aria_core/tracing.py`: trazas JSONL locales en `.aria_traces.jsonl`.
+- `aria_core/evals.py`: evaluaciones estaticas basicas.
+- `agent.py`: wrapper estable usado por `main.py`.
+
+Por defecto, si `openai-agents` esta instalado, ARIA usa `Agent`, `Runner` y
+`FunctionTool` del Agents SDK. Si necesitas desactivar ese runtime durante una
+incidencia, define `ARIA_DISABLE_AGENTS_SDK=1` y usara el loop compatible de
+Chat Completions.
+
+## Memoria persistente
+
+ARIA guarda las memorias nuevas como JSON versionado dentro del campo
+`Contenido` de Airtable, manteniendo compatibilidad con los campos actuales:
+
+- `Categoria`
+- `Contenido`
+- `Actualizado`
+
+Cada correccion del usuario del tipo "no vuelvas", "recuerda", "corrige" o
+"a partir de ahora" se captura antes de responder y se actualiza como memoria
+persistente. Las operaciones disponibles son:
+
+- `memory_search(query, categories)`
+- `memory_upsert(category, content, source, confidence)`
+- `memory_replace(memory_id, new_content, reason)`
+- `memory_delete(memory_id, reason)`
+- `decision_log_create(topic, options, recommendation, rationale)`
+
+`memory_replace` y `memory_delete` requieren confirmacion explicita.
+
+## Acciones sensibles
+
+Estas herramientas devuelven `approval_required` si no reciben
+`confirmacion_usuario=true`:
+
+- `delete_calendar_event`
+- `create_google_doc`
+- `memory_replace`
+- `memory_delete`
+
+El modelo debe pedir confirmacion explicita a Domingo antes de ejecutarlas.
+
+## Variables de entorno
+
+- `TELEGRAM_BOT_TOKEN`
+- `OPENAI_API_KEY`
+- `OPENAI_MODEL` opcional, por defecto `gpt-4o-mini`
+- `AIRTABLE_API_KEY`
+- `AIRTABLE_BASE_ID`
+- `GOOGLE_CREDENTIALS_JSON`
+- `GOOGLE_CALENDAR_ID`
+- `GOOGLE_USER_REFRESH_TOKEN` opcional para crear Docs como usuario
+- `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET` para OAuth de Docs
+- `GOOGLE_DRIVE_FOLDER_ID` opcional
+- `ARIA_TRACE_FILE` opcional, por defecto `.aria_traces.jsonl`
+- `ARIA_DISABLE_AGENTS_SDK=1` opcional para forzar el fallback manual
+
+## Verificacion local
+
+En este entorno se verifico con el Python incluido en Codex:
+
+```powershell
+C:\Users\Usuario\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe -m unittest discover -s tests -v
+C:\Users\Usuario\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe -m py_compile agent.py main.py google_apis.py aria_core\memory.py aria_core\tools.py aria_core\workflows.py aria_core\orchestrator.py aria_core\tracing.py aria_core\evals.py
 ```
 
----
+## Despliegue
 
-## Setup
-
-### 1. Variables de entorno (Railway Dashboard → Variables)
-
-| Variable | Valor |
-|---|---|
-| `TELEGRAM_BOT_TOKEN` | Token del bot de Telegram |
-| `ANTHROPIC_API_KEY` | API Key de console.anthropic.com |
-| `GOOGLE_CREDENTIALS_JSON` | JSON completo de la Service Account (una sola línea) |
-| `GOOGLE_SHEET_ID` | ID de la hoja de Google Sheets |
-| `GOOGLE_CALENDAR_ID` | `primary` o el ID del calendario específico |
-| `RAILWAY_PUBLIC_DOMAIN` | Se inyecta automáticamente en Railway |
-
-### 2. Google Service Account
-
-1. [Google Cloud Console](https://console.cloud.google.com) → Proyecto nuevo "ARIA Assistant"
-2. Activa: **Calendar API**, **Sheets API**, **Docs API**, **Drive API**
-3. IAM → Service Accounts → Crear → descarga la clave JSON
-4. Pega el JSON completo (en una línea) en `GOOGLE_CREDENTIALS_JSON`
-5. **Comparte** el Google Sheet y el Calendario con el email de la service account como **Editor**
-
-### 3. Estructura del Google Sheet
-
-**Pestaña Finanzas** — fila 1:
-`Concepto | Tipo | Monto | Fecha Vencimiento | Frecuencia | Estado | Notas | Actualizado`
-
-**Pestaña Tareas** — fila 1:
-`Tarea | Fecha Limite | Tipo | Monto | Prioridad | Notas | Estado | Creado`
-
-**Pestaña Historial** — fila 1:
-`Fecha | ChatID | Rol | Mensaje`
-
----
-
-## Resumen diario automático
-
-- **Lunes a Viernes** → 07:00 AM (hora Madrid)
-- **Sábado y Domingo** → 10:00 AM (hora Madrid)
-
----
-
-## Herramientas de ARIA
-
-| Herramienta | Qué hace |
-|---|---|
-| `get_calendar_events` | Lee el Google Calendar |
-| `create_calendar_event` | Crea eventos |
-| `get_finances` | Lee datos financieros |
-| `get_tasks` | Lee tareas pendientes |
-| `create_task` | Añade tarea a Sheets |
-| `update_task_status` | Marca tarea como completada |
-| `create_google_doc` | Crea documento en Google Docs |
-| `get_stock_price` | Precio y datos de acciones/ETFs |
+Railway sigue arrancando la app FastAPI de `main.py`. El endpoint `/webhook` y
+`/health` se mantienen.
