@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from .drive_workspace import DriveWorkspace
 from .memory import StructuredMemoryStore
 
 MADRID_TZ = ZoneInfo("Europe/Madrid")
@@ -13,6 +14,8 @@ MADRID_TZ = ZoneInfo("Europe/Madrid")
 SENSITIVE_TOOLS = {
     "delete_calendar_event",
     "create_google_doc",
+    "drive_create_document",
+    "drive_trash_document",
     "memory_replace",
     "memory_delete",
 }
@@ -70,9 +73,32 @@ def tool_schemas() -> list[dict]:
         ),
         _tool(
             "create_google_doc",
-            "Crea un Google Doc. Requiere confirmacion_usuario=true si se va a guardar en Drive.",
+            "Crea un Google Doc dentro de la carpeta Aria. Requiere confirmacion_usuario=true.",
             {"titulo": {"type": "string"}, "contenido": {"type": "string"}, "confirmacion_usuario": {"type": "boolean"}},
             ["titulo", "contenido"],
+        ),
+        _tool(
+            "drive_list_documents",
+            "Lista los Google Docs dentro de la carpeta Aria.",
+            {},
+        ),
+        _tool(
+            "drive_read_document",
+            "Lee un Google Doc solo si esta dentro de la carpeta Aria.",
+            {"document_id": {"type": "string"}},
+            ["document_id"],
+        ),
+        _tool(
+            "drive_create_document",
+            "Crea un Google Doc dentro de la carpeta Aria. Requiere confirmacion_usuario=true.",
+            {"title": {"type": "string"}, "content": {"type": "string"}, "confirmacion_usuario": {"type": "boolean"}},
+            ["title", "content"],
+        ),
+        _tool(
+            "drive_trash_document",
+            "Envia a la papelera un Google Doc dentro de la carpeta Aria. Requiere confirmacion_usuario=true.",
+            {"document_id": {"type": "string"}, "confirmacion_usuario": {"type": "boolean"}},
+            ["document_id"],
         ),
         _tool(
             "get_stock_price",
@@ -135,6 +161,7 @@ class ToolExecutor:
     def __init__(self, google, memory: StructuredMemoryStore):
         self.google = google
         self.memory = memory
+        self.drive = DriveWorkspace(google)
 
     async def execute(self, tool_name: str, tool_input: dict[str, Any]) -> str:
         try:
@@ -196,7 +223,19 @@ class ToolExecutor:
             return {"status": "ok", "message": await self.google.update_tarea_estado(tool_input["nombre"], tool_input["estado"])}
 
         if tool_name == "create_google_doc":
-            return await self.google.create_doc(titulo=tool_input["titulo"], contenido=tool_input["contenido"])
+            return await self.drive.create_document(title=tool_input["titulo"], content=tool_input["contenido"])
+
+        if tool_name == "drive_list_documents":
+            return {"status": "ok", "documents": await self.drive.list_documents()}
+
+        if tool_name == "drive_read_document":
+            return await self.drive.read_document(tool_input["document_id"])
+
+        if tool_name == "drive_create_document":
+            return await self.drive.create_document(title=tool_input["title"], content=tool_input["content"])
+
+        if tool_name == "drive_trash_document":
+            return await self.drive.trash_document(tool_input["document_id"])
 
         if tool_name == "get_stock_price":
             return await self.google.get_stock_price(tool_input["ticker"])

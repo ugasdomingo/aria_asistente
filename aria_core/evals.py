@@ -25,8 +25,27 @@ def run_static_evals() -> list[dict]:
         },
         {
             "name": "sensitive_tools_guarded",
-            "passed": {"delete_calendar_event", "create_google_doc", "memory_replace", "memory_delete"}.issubset(SENSITIVE_TOOLS),
+            "passed": {
+                "delete_calendar_event",
+                "create_google_doc",
+                "drive_create_document",
+                "drive_trash_document",
+                "memory_replace",
+                "memory_delete",
+            }.issubset(SENSITIVE_TOOLS),
+        },
+        {
+            "name": "drive_tools_present",
+            "passed": {
+                "drive_list_documents",
+                "drive_read_document",
+                "drive_create_document",
+                "drive_trash_document",
+            }.issubset(tool_names),
+        },
+        {
+            "name": "marketing_skill_routes",
+            "passed": select_workflow("Hazme un plan de marketing").name == "marketing",
         },
     ]
     return cases
-

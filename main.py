@@ -1,4 +1,3 @@
-import asyncio
 import os
 from contextlib import asynccontextmanager
 
@@ -9,36 +8,40 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 import agent
+from aria_core.telegram_media import TelegramMediaAdapter
 
 load_dotenv()
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-CHAT_ID_FILE = ".chat_id"  # Persiste el chat_id en disco
+CHAT_ID_FILE = ".chat_id"
 
 scheduler = AsyncIOScheduler(timezone="Europe/Madrid")
+media_adapter: TelegramMediaAdapter | None = None
 
-
-# ─── Helpers ─────────────────────────────────────────────────────────────────
 
 def get_saved_chat_id() -> str:
-    """Lee el chat_id guardado en disco o en la env."""
     env_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
     if env_id:
         return env_id
     if os.path.exists(CHAT_ID_FILE):
-        with open(CHAT_ID_FILE) as f:
-            return f.read().strip()
+        with open(CHAT_ID_FILE) as handle:
+            return handle.read().strip()
     return ""
 
 
 def save_chat_id(chat_id: str):
-    """Guarda el chat_id para los mensajes proactivos."""
-    with open(CHAT_ID_FILE, "w") as f:
-        f.write(chat_id)
+    with open(CHAT_ID_FILE, "w") as handle:
+        handle.write(chat_id)
+
+
+def get_media_adapter() -> TelegramMediaAdapter:
+    global media_adapter
+    if media_adapter is None:
+        media_adapter = TelegramMediaAdapter(BOT_TOKEN)
+    return media_adapter
 
 
 async def send_message(chat_id: str, text: str):
-    """Envía un mensaje a Telegram. Divide si supera 4096 caracteres."""
     max_len = 4096
     chunks = [text[i:i + max_len] for i in range(0, len(text), max_len)]
     async with httpx.AsyncClient() as http:
@@ -51,25 +54,21 @@ async def send_message(chat_id: str, text: str):
 
 
 async def daily_summary_job():
-    """Tarea programada: genera y envía el resumen matutino."""
     chat_id = get_saved_chat_id()
     if not chat_id:
-        print("⚠️  daily_summary: TELEGRAM_CHAT_ID no configurado. Escribe primero al bot.")
+        print("daily_summary: TELEGRAM_CHAT_ID no configurado. Escribe primero al bot.")
         return
-    print(f"📅 Generando resumen diario para chat_id={chat_id}...")
+    print(f"Generando resumen diario para chat_id={chat_id}...")
     try:
         summary = await agent.generate_daily_summary()
         await send_message(chat_id, summary)
-        print("✅ Resumen enviado.")
-    except Exception as e:
-        print(f"❌ Error en daily_summary: {e}")
+        print("Resumen enviado.")
+    except Exception as exc:
+        print(f"Error en daily_summary: {exc}")
 
-
-# ─── Lifespan ─────────────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Registrar webhook en Telegram
     domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "").strip().replace("\n", "").replace("\r", "")
     if domain:
         webhook_url = f"https://{domain}/webhook"
@@ -81,27 +80,22 @@ async def lifespan(app: FastAPI):
             )
             data = resp.json()
             if data.get("ok"):
-                print(f"✅ Webhook registrado: {webhook_url}")
+                print(f"Webhook registrado: {webhook_url}")
             else:
-                print(f"⚠️  Webhook error: {data}")
+                print(f"Webhook error: {data}")
     else:
-        print("⚠️  RAILWAY_PUBLIC_DOMAIN no configurado. Webhook no registrado automáticamente.")
+        print("RAILWAY_PUBLIC_DOMAIN no configurado. Webhook no registrado automaticamente.")
 
-    # Programar resumen diario
-    # Lunes a viernes → 7:00 AM Madrid
     scheduler.add_job(daily_summary_job, "cron", day_of_week="mon-fri", hour=7, minute=0, id="summary_weekday")
-    # Sábado y domingo → 10:00 AM Madrid
     scheduler.add_job(daily_summary_job, "cron", day_of_week="sat,sun", hour=10, minute=0, id="summary_weekend")
     scheduler.start()
-    print("⏰ Scheduler activo — L-V 07:00 | S-D 10:00 (Madrid)")
+    print("Scheduler activo: L-V 07:00 | S-D 10:00 Madrid")
 
     yield
 
     scheduler.shutdown()
     print("Scheduler detenido.")
 
-
-# ─── App ──────────────────────────────────────────────────────────────────────
 
 app = FastAPI(title="ARIA - Asistente Personal", lifespan=lifespan)
 
@@ -113,7 +107,6 @@ async def health():
 
 @app.get("/auth/google")
 async def auth_google():
-    """Inicia el flujo OAuth — visita esta URL una sola vez para autorizar a ARIA."""
     client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
     redirect_uri = "https://ariaasistente-production.up.railway.app/auth/callback"
     scope = "https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/documents"
@@ -131,11 +124,10 @@ async def auth_google():
 
 @app.get("/auth/callback")
 async def auth_callback(code: str = "", error: str = ""):
-    """Google redirige aquí tras la autorización."""
     if error:
-        return HTMLResponse(f"<h2>❌ Error: {error}</h2>")
+        return HTMLResponse(f"<h2>Error: {error}</h2>")
     if not code:
-        return HTMLResponse("<h2>❌ No se recibió código de autorización.</h2>")
+        return HTMLResponse("<h2>No se recibio codigo de autorizacion.</h2>")
 
     client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
     client_secret = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
@@ -157,26 +149,26 @@ async def auth_callback(code: str = "", error: str = ""):
 
     if not refresh_token:
         return HTMLResponse(
-            "<h2>❌ No se obtuvo refresh_token.</h2>"
-            "<p>Asegúrate de haber añadido <code>access_type=offline</code> y <code>prompt=consent</code>.</p>"
+            "<h2>No se obtuvo refresh_token.</h2>"
+            "<p>Asegurate de haber anadido access_type=offline y prompt=consent.</p>"
             f"<pre>{tokens}</pre>"
         )
 
-    return HTMLResponse(f"""
-        <h1>✅ Autorización completada</h1>
-        <p>Copia el token completo y añádelo en Railway como <code>GOOGLE_USER_REFRESH_TOKEN</code>:</p>
+    return HTMLResponse(
+        f"""
+        <h1>Autorizacion completada</h1>
+        <p>Copia el token completo y anadelo en Railway como <code>GOOGLE_USER_REFRESH_TOKEN</code>:</p>
         <textarea id="token" rows="4" style="width:100%;font-size:13px;padding:12px;word-break:break-all"
             onclick="this.select()">{refresh_token}</textarea>
         <br><br>
-        <button onclick="navigator.clipboard.writeText(document.getElementById('token').value);this.innerText='✅ Copiado!'"
+        <button onclick="navigator.clipboard.writeText(document.getElementById('token').value);this.innerText='Copiado!'"
             style="padding:12px 24px;font-size:16px;cursor:pointer">
-            📋 Copiar token
+            Copiar token
         </button>
         <p>Token length: <strong>{len(refresh_token)} caracteres</strong></p>
-        <p>Después de añadirlo en Railway, ARIA creará documentos en tu Google Drive.</p>
-    """)
-
-
+        <p>Despues de anadirlo en Railway, ARIA usara tu Drive para la carpeta Aria.</p>
+        """
+    )
 
 
 @app.post("/webhook")
@@ -194,44 +186,47 @@ async def webhook(request: Request):
     if not chat_id:
         return {"ok": True}
 
-    # Guardar chat_id al primer contacto
     if not get_saved_chat_id():
         save_chat_id(chat_id)
-        print(f"💾 chat_id guardado: {chat_id}")
-
-    # Voz → mensaje de aviso
-    if message.get("voice") or message.get("audio"):
-        await send_message(
-            chat_id,
-            "🎤 Recibí tu nota de voz. Por ahora proceso mejor mensajes de texto. ¡Escríbeme!"
-        )
-        return {"ok": True}
+        print(f"chat_id guardado: {chat_id}")
 
     text = message.get("text", "").strip()
+    caption = message.get("caption", "").strip()
+    media_context = None
+
+    if any(message.get(key) for key in ("photo", "voice", "audio", "video", "video_note", "document")):
+        media_context = await get_media_adapter().build_context(message)
+
+    if not text and caption:
+        text = caption
+
+    if not text and media_context and media_context.has_content:
+        text = "Analiza el adjunto que te he enviado y dime que puedes hacer con el."
+
     if not text:
         return {"ok": True}
 
-    # Comando /start
     if text == "/start":
         await send_message(
             chat_id,
-            "👋 Hola Domingo, soy *ARIA* — tu asistente ejecutiva personal.\n\n"
+            "Hola Domingo, soy ARIA, tu asistente ejecutiva personal.\n\n"
             "Puedo ayudarte con:\n"
-            "📅 Gestionar tu agenda y calendario\n"
-            "✅ Tareas y obligaciones\n"
-            "💰 Finanzas personales\n"
-            "📈 Inversiones en acciones (Revolut)\n"
-            "📄 Crear documentos\n\n"
-            "¿En qué empezamos?"
+            "- Gestionar tu agenda y calendario\n"
+            "- Tareas y obligaciones\n"
+            "- Finanzas personales\n"
+            "- Inversiones en acciones\n"
+            "- Crear, leer y organizar documentos\n"
+            "- Analizar imagenes, audios y videos\n"
+            "- Activar habilidades como /skill marketing\n\n"
+            "En que empezamos?",
         )
         return {"ok": True}
 
-    # Procesar con el agente
     try:
-        response = await agent.process_message(chat_id, text)
+        response = await agent.process_message(chat_id, text, media_context=media_context)
         await send_message(chat_id, response)
-    except Exception as e:
-        print(f"❌ Error procesando mensaje: {e}")
-        await send_message(chat_id, "⚠️ Algo fue mal. Inténtalo en un momento.")
+    except Exception as exc:
+        print(f"Error procesando mensaje: {exc}")
+        await send_message(chat_id, "Algo fue mal. Intentalo en un momento.")
 
     return {"ok": True}

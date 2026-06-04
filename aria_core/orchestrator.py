@@ -10,8 +10,10 @@ from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 from openai import OpenAI
 
+from .message_context import MessageContext
 from .memory import StructuredMemoryStore
 from .prompts import BASE_SYSTEM_PROMPT, MEMORY_CONTEXT_HEADER, WORKFLOW_PROMPTS
+from .skills import SkillRegistry
 from .tools import ToolExecutor, tool_schemas
 from .tracing import TraceRecorder
 from .workflows import memory_category_for_text, select_workflow
@@ -35,13 +37,23 @@ class AriaOrchestrator:
         self.client = client or OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self.memory = StructuredMemoryStore(google)
         self.tools = ToolExecutor(google, self.memory)
+        self.skills = SkillRegistry(self.memory, self.tools.drive, campaign_store=google)
 
-    async def process_message(self, chat_id: str, user_message: str) -> str:
+    async def process_message(self, chat_id: str, user_message: str, media_context: MessageContext | None = None) -> str:
         selection = select_workflow(user_message)
         recorder = TraceRecorder(chat_id=chat_id, workflow=selection.name)
         recorder.add("workflow_selected", reasons=selection.reasons)
+        if media_context and media_context.has_content:
+            recorder.add("media_context_received", attachments=len(media_context.attachments))
 
         await self.google.save_to_history(chat_id, "usuario", user_message)
+
+        skill_response = await self.skills.handle(chat_id, user_message)
+        if skill_response:
+            await self.google.save_to_history(chat_id, "aria", skill_response)
+            recorder.add("skill_handled")
+            recorder.finish("ok", skill_response)
+            return skill_response
 
         captured_memory_note = ""
         if selection.needs_memory_capture:
@@ -57,6 +69,7 @@ class AriaOrchestrator:
 
         messages = self._build_messages(
             user_message=user_message,
+            media_context=media_context,
             history_items=history_items,
             memory_items=relevant_memories,
             workflow_name=selection.name,
@@ -97,6 +110,7 @@ class AriaOrchestrator:
     def _build_messages(
         self,
         user_message: str,
+        media_context: MessageContext | None,
         history_items: list[dict],
         memory_items,
         workflow_name: str,
@@ -117,13 +131,17 @@ class AriaOrchestrator:
             memory_text = "\n\n".join(record.to_model_text() for record in memory_items)
             system_content += f"\n{MEMORY_CONTEXT_HEADER}:\n{memory_text}\n"
 
+        enriched_user_message = user_message
+        if media_context and media_context.has_content:
+            enriched_user_message = f"{user_message}\n\nCONTEXTO MULTIMEDIA:\n{media_context.to_prompt_text()}"
+
         messages = [{"role": "system", "content": system_content}]
         for item in history_items:
             role = "assistant" if item.get("rol") == "aria" else "user"
             content = item.get("mensaje", "")
             if content and content != user_message:
                 messages.append({"role": role, "content": content})
-        messages.append({"role": "user", "content": user_message})
+        messages.append({"role": "user", "content": enriched_user_message})
         return messages
 
     def _can_use_agents_sdk(self) -> bool:

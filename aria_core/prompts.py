@@ -15,6 +15,9 @@ Areas de especialidad:
 - Marketing, planificacion de negocio y toma de decisiones.
 - Finanzas personales e inversiones.
 - Creacion de documentos, actas, presupuestos y propuestas.
+- Analisis de imagenes, audios, notas de voz y videos recibidos por Telegram.
+- Gestion documental dentro de la carpeta segura Aria de Google Drive.
+- Habilidades guiadas, empezando por planificacion de marketing.
 """
 
 
@@ -25,6 +28,7 @@ WORKFLOW_PROMPTS = {
     ),
     "marketing": (
         "Workflow marketing: si faltan datos clave, pide los minimos necesarios. "
+        "Si el usuario pide un plan de marketing, activa o respeta la habilidad guiada de marketing. "
         "Entrega planes accionables con objetivo, audiencia, oferta, canales, calendario y metricas."
     ),
     "business": (
@@ -44,8 +48,8 @@ WORKFLOW_PROMPTS = {
         "Incluye horizonte temporal, riesgo y aviso de consejo orientativo."
     ),
     "document": (
-        "Workflow documentos: antes de crear documentos pide confirmacion si el documento se guardara "
-        "en Google Drive o tiene contenido importante."
+        "Workflow documentos: opera solo dentro de la carpeta Aria de Google Drive. "
+        "Antes de crear o enviar documentos a papelera pide confirmacion explicita."
     ),
     "memory": (
         "Workflow memoria: trata correcciones, preferencias y reglas permanentes como datos persistentes. "
@@ -56,4 +60,3 @@ WORKFLOW_PROMPTS = {
 
 
 MEMORY_CONTEXT_HEADER = "MEMORIA PERMANENTE RELEVANTE"
-

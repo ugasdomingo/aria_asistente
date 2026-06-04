@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 from datetime import datetime, timedelta
+from urllib.parse import quote
 
 import httpx
 import pytz
@@ -35,6 +36,9 @@ class GoogleAPIs:
         self.tbl_finanzas = "tblBaDPD27Lid39NN"
         self.tbl_tareas = "tblCuQNQ1whoWscNt"
         self.tbl_memoria = "tbl78K08qNSAUKanC"
+        self.tbl_marcas = os.getenv("AIRTABLE_TABLE_MARCAS", "Marcas").strip()
+        self.tbl_campanas = os.getenv("AIRTABLE_TABLE_CAMPANAS", "Campañas").strip()
+        self.tbl_contenido_campana = os.getenv("AIRTABLE_TABLE_CONTENIDO_CAMPANA", "Contenido Campaña").strip()
 
         if self.airtable_key:
             print("✅ Airtable configurado correctamente.")
@@ -70,10 +74,141 @@ class GoogleAPIs:
         }
 
     def _at_url(self, table_id: str, record_id: str = "") -> str:
-        url = f"{AIRTABLE_BASE_URL}/{self.airtable_base_id}/{table_id}"
+        table_part = quote(str(table_id), safe="")
+        url = f"{AIRTABLE_BASE_URL}/{self.airtable_base_id}/{table_part}"
         if record_id:
-            url += f"/{record_id}"
+            url += f"/{quote(str(record_id), safe='')}"
         return url
+
+    def _at_post_record(self, table_id: str, fields: dict) -> dict:
+        resp = httpx.post(
+            self._at_url(table_id),
+            headers=self._at_headers(),
+            json={"fields": fields},
+            timeout=20,
+        )
+        if resp.status_code not in (200, 201):
+            return {"error": f"Airtable {table_id} error {resp.status_code}: {resp.text[:300]}"}
+        return resp.json()
+
+    def _at_patch_record(self, table_id: str, record_id: str, fields: dict) -> dict:
+        resp = httpx.patch(
+            self._at_url(table_id, record_id),
+            headers=self._at_headers(),
+            json={"fields": fields},
+            timeout=20,
+        )
+        if resp.status_code not in (200, 201):
+            return {"error": f"Airtable {table_id} error {resp.status_code}: {resp.text[:300]}"}
+        return resp.json()
+
+    def _at_get_records(self, table_id: str, max_records: int = 100, params: dict | None = None) -> list:
+        if not self.airtable_key:
+            return []
+        query = {"maxRecords": max_records}
+        if params:
+            query.update(params)
+        resp = httpx.get(
+            self._at_url(table_id),
+            headers=self._at_headers(),
+            params=query,
+            timeout=20,
+        )
+        if resp.status_code != 200:
+            print(f"Airtable {table_id} read error {resp.status_code}: {resp.text[:300]}")
+            return []
+        return resp.json().get("records", [])
+
+    def _at_batch_create(self, table_id: str, records: list[dict]) -> dict:
+        created = 0
+        errors: list[str] = []
+        for start in range(0, len(records), 10):
+            chunk = records[start:start + 10]
+            resp = httpx.post(
+                self._at_url(table_id),
+                headers=self._at_headers(),
+                json={"records": [{"fields": fields} for fields in chunk]},
+                timeout=30,
+            )
+            if resp.status_code not in (200, 201):
+                errors.append(f"{resp.status_code}: {resp.text[:300]}")
+                continue
+            created += len(resp.json().get("records", []))
+        return {"created": created, "errors": errors}
+
+    def _save_campaign_bundle(self, bundle) -> dict:
+        if not self.airtable_key:
+            return {"error": "Airtable no configurado", "created_content": 0}
+        payload = bundle.airtable_payload()
+        brand_fields = payload["brand"]
+        existing_brand = next(
+            (
+                record
+                for record in self._at_get_records(self.tbl_marcas, max_records=100)
+                if record.get("fields", {}).get("Marca", "").strip().lower()
+                == brand_fields.get("Marca", "").strip().lower()
+            ),
+            None,
+        )
+        if existing_brand:
+            brand_result = self._at_patch_record(self.tbl_marcas, existing_brand["id"], brand_fields)
+        else:
+            brand_result = self._at_post_record(self.tbl_marcas, brand_fields)
+
+        campaign_result = self._at_post_record(self.tbl_campanas, payload["campaign"])
+        content_result = self._at_batch_create(self.tbl_contenido_campana, payload["content"])
+        errors = list(content_result["errors"])
+        for result in (brand_result, campaign_result):
+            if isinstance(result, dict) and result.get("error"):
+                errors.append(result["error"])
+        return {
+            "brand": brand_result,
+            "campaign": campaign_result,
+            "created_content": content_result["created"],
+            "errors": errors,
+        }
+
+    async def save_campaign_bundle(self, bundle) -> dict:
+        return await asyncio.to_thread(self._save_campaign_bundle, bundle)
+
+    def _list_campaigns(self, brand: str | None = None, limit: int = 10) -> list[dict]:
+        records = self._at_get_records(
+            self.tbl_campanas,
+            max_records=100,
+            params={
+                "sort[0][field]": "Fecha Inicio",
+                "sort[0][direction]": "desc",
+            },
+        )
+        rows = [record.get("fields", {}) for record in records]
+        if brand:
+            rows = [row for row in rows if row.get("Marca", "").strip().lower() == brand.strip().lower()]
+        return rows[:limit]
+
+    async def list_campaigns(self, brand: str | None = None, limit: int = 10) -> list[dict]:
+        return await asyncio.to_thread(self._list_campaigns, brand, limit)
+
+    def _get_campaign_status(self, brand: str | None = None) -> list[dict]:
+        return self._list_campaigns(brand=brand, limit=5)
+
+    async def get_campaign_status(self, brand: str | None = None) -> list[dict]:
+        return await asyncio.to_thread(self._get_campaign_status, brand)
+
+    def _get_campaign_today(self, brand: str | None = None, today: str | None = None) -> list[dict]:
+        target_date = today or datetime.now(MADRID_TZ).date().isoformat()
+        campaign_ids: set[str] | None = None
+        if brand:
+            campaigns = self._list_campaigns(brand=brand, limit=50)
+            campaign_ids = {row.get("CampaignID", "") for row in campaigns if row.get("CampaignID")}
+        records = self._at_get_records(self.tbl_contenido_campana, max_records=100)
+        rows = [record.get("fields", {}) for record in records]
+        rows = [row for row in rows if row.get("Fecha") == target_date]
+        if campaign_ids is not None:
+            rows = [row for row in rows if row.get("CampaignID") in campaign_ids]
+        return sorted(rows, key=lambda row: (str(row.get("CampaignID", "")), int(row.get("Dia", 0)), str(row.get("Canal", ""))))
+
+    async def get_campaign_today(self, brand: str | None = None, today: str | None = None) -> list[dict]:
+        return await asyncio.to_thread(self._get_campaign_today, brand, today)
 
     # ─── Historial ───────────────────────────────────────────────────────────
 

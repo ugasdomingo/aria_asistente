@@ -101,6 +101,8 @@ class StructuredMemoryStore:
         for record in await self.list_records():
             if category_set and record.category.lower() not in category_set:
                 continue
+            if not category_set and record.category.lower().startswith("skill_session:"):
+                continue
             haystack = f"{record.category} {record.content}".lower()
             score = sum(1 for term in query_terms if term in haystack)
             if score or not query_terms:

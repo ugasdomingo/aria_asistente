@@ -10,3 +10,4 @@ apscheduler==3.10.4
 python-dotenv==1.0.1
 yfinance==0.2.50
 pytz==2024.2
+opencv-python-headless==4.10.0.84
